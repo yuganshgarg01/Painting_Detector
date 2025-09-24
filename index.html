@@ -1,0 +1,136 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Art Analysis Chatbot</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/babel-standalone@7.22.9/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gradient-to-br from-amber-100 via-red-100 to-orange-100 min-h-screen flex items-center justify-center">
+  <div id="root"></div>
+  <script type="text/babel">
+    function Chatbot() {
+      const [messages, setMessages] = React.useState([]);
+      const [image, setImage] = React.useState(null);
+      const [isLoading, setIsLoading] = React.useState(false);
+
+      const handleImageUpload = (event) => {
+        const file = event.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            setImage(e.target.result);
+            setMessages([...messages, { sender: 'user', type: 'image', content: e.target.result }]);
+            analyzeImage(file);
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+
+      const analyzeImage = async (file) => {
+        setIsLoading(true);
+        const formData = new FormData();
+        formData.append('image', file);
+
+        try {
+          const response = await fetch('http://localhost:5000/analyze', {
+            method: 'POST',
+            body: formData,
+          });
+          const result = await response.json();
+          setMessages([...messages, { sender: 'user', type: 'image', content: image }, { sender: 'bot', type: 'text', content: result.analysis }]);
+        } catch (error) {
+          setMessages([...messages, { sender: 'bot', type: 'text', content: 'Oops, something went wrong! Try again.' }]);
+        }
+        setIsLoading(false);
+      };
+
+      return (
+        <div class="w-full max-w-2xl mx-auto p-4 bg-white rounded-lg shadow-xl border-2 border-amber-500">
+          <h1 class="text-3xl font-bold text-center text-amber-700 mb-4 font-serif">Indian Art Analysis Chatbot</h1>
+          <div class="h-96 overflow-y-auto bg-amber-50 p-4 rounded-md mb-4 border border-amber-200">
+            {messages.map((msg, index) => (
+              <div key={index} class={`mb-4 flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div class={`max-w-xs p-3 rounded-lg ${msg.sender === 'user' ? 'bg-amber-500 text-white' : 'bg-orange-100 text-gray-800'}`}>
+                  {msg.type === 'image' ? (
+                    <img src={msg.content} alt="Uploaded painting" class="max-w-full h-auto rounded-md" />
+                  ) : (
+                    <p class="text-sm whitespace-pre-line">{msg.content}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+            {isLoading && (
+              <div class="flex justify-center">
+                <svg class="animate-spin h-8 w-8 text-amber-700" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                </svg>
+              </div>
+            )}
+          </div>
+          <div class="flex items-center">
+            <input
+              type="file"
+              accept="image/*"
+              class="hidden"
+              id="imageUpload"
+              onChange={handleImageUpload}
+            />
+            <label
+              htmlFor="imageUpload"
+              class="flex-1 bg-amber-600 text-white text-center py-2 rounded-lg hover:bg-amber-700 cursor-pointer transition duration-300"
+            >
+              Upload Painting
+            </label>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<Chatbot />, document.getElementById('root'));
+  </script>
+</body>
+</html>
